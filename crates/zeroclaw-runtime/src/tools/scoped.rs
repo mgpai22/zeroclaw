@@ -144,6 +144,13 @@ impl ScopedToolRegistry {
     pub fn from_raw_for_test(tools: Vec<Box<dyn Tool>>) -> Self {
         Self(tools, None)
     }
+    /// Mint a scoped registry from an explicit tool list, for embedders that
+    /// manage their own tools and never call [`Self::assemble`]. Unlike
+    /// [`Self::from_raw_for_test`] this is always available: the host owns
+    /// every tool in the list, so there is no seal to bypass.
+    pub fn from_tools(tools: Vec<Box<dyn Tool>>) -> Self {
+        Self(tools, None)
+    }
 }
 
 /// Inputs to [`ScopedToolRegistry::assemble`]. The eager built-ins arrive already

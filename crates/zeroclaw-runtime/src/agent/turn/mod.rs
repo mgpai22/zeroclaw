@@ -605,6 +605,20 @@ tokio::task_local! {
     static TOOL_PROTOCOL_PROMPTS: Arc<ToolProtocolPrompts>;
 }
 
+tokio::task_local! {
+    /// Per-message durability sink for embedders that persist the transcript
+    /// themselves. When scoped, every message committed to turn history
+    /// (`push_dual`, `append_tool_round`) is also passed to the sink
+    /// synchronously, so a host that fsyncs on each call can resume an
+    /// interrupted turn after a crash without re-running finished tools.
+    /// Unscoped (default): no overhead, previous behavior.
+    pub static TURN_MESSAGE_SINK: std::sync::Arc<dyn Fn(&ChatMessage) + Send + Sync>;
+}
+
+fn emit_message_sink(msg: &ChatMessage) {
+    let _ = TURN_MESSAGE_SINK.try_with(|sink| sink(msg));
+}
+
 /// Scope complete prompt variants around an Agent turn. This remains transient
 /// request state: durable history keeps the caller-owned canonical prompt.
 pub(crate) async fn scope_tool_protocol_prompts<F: std::future::Future>(
@@ -1472,6 +1486,7 @@ impl<'a> TurnState<'a> {
         if let Some(ref mut canonical) = self.canonical {
             canonical.push(msg.clone());
         }
+        emit_message_sink(&msg);
         self.history.push(msg);
         self.synced = self.canonical.as_ref().map_or(0, |c| c.len());
     }
@@ -1505,6 +1520,9 @@ impl<'a> TurnState<'a> {
         );
         if let Some(ref mut canonical) = self.canonical {
             canonical.extend_from_slice(&self.history[from..]);
+        }
+        for msg in &self.history[from..] {
+            emit_message_sink(msg);
         }
         self.synced = self.canonical.as_ref().map_or(0, |c| c.len());
     }
